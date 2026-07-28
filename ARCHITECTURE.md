@@ -55,7 +55,7 @@
          │  ┌─────────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────┐  │
          │  │  bt_manager  │  │ ai_client  │  │ ai_tts   │  │ audio_player │  │
          │  │ - BlueZ D-Bus│  │ - libcurl  │  │ - 腾讯云  │  │  - ALSA PCM  │  │
-         │  │ - SPP vtable │  │ - SSE 流式  │  │ - TC3-HMAC│  │  - WAV/PCM   │  │
+         │  │ - SPP vtable │  │ - 同步API   │  │ - TC3-HMAC│  │  - WAV/PCM   │  │
          │  │ - D-Bus 分发  │  │ - 重试+降级 │  │ - base64  │  │  - underrun  │  │
          │  └─────────────┘  └───────────┘  └──────────┘  └──────────────┘  │
          │                                                                   │
@@ -191,7 +191,9 @@ BlueZ 检测到手机连接时，通过 D-Bus 调用 `NewConnection` 回调，�
 
 ### 2.3 ai_client（服务层，PRIO 10）
 
-**职责：** 封装 libcurl HTTP 请求，向 LLM API（OpenAI 兼容接口）发送对话并接收 SSE 流式响应。
+**职责：** 封装 libcurl HTTP 请求，向 LLM API（OpenAI 兼容接口）发送对话并获取回复。
+
+**调用方式：** 当前使用**同步（非流式）API** `chat_sync`，原因是 DeepSeek v4-flash 的 `reasoning_content` 字段会干扰 SSE 流式解析，改用同步请求一次性返回完整结果，由 `voice_agent` 通过 `thread_pool` 异步执行以免阻塞主线程。流式 `chat` 接口保留在代码中，供后续兼容的模型使用。
 
 **配置结构（`ai_client_config_t`，定义在 `ai_client.h`）：**
 
@@ -208,8 +210,8 @@ typedef struct {
 
 **接口说明：**
 
-- `chat(json_payload, callback, user_data)` —— 同步阻塞在调用者线程中，libcurl POST 发起请求。通过 SSE write_cb 逐行回调 `sse_feed` → `sse_process_line` → `extract_content`，每收到一个 chunk 调用 `callback(chunk, 0)`。收到 `[DONE]` 或异常时调用 `callback(full_text, 1)`。内置重试（最多 3 次，间隔 200ms）。失败返回 `ERR_GENERAL`。
-- `chat_sync(json_payload, &response)` —— 同步全量返回，不经过 SSE 解析，适用于直接获取完整响应。
+- `chat_sync(json_payload, &response)` —— **主用接口。** 同步阻塞，libcurl POST 发起请求，等待完整 JSON 响应后解析返回。调用方通过 `thread_pool_submit` 异步执行，不阻塞事件循环。内置重试（最多 3 次，间隔 200ms）。失败返回 `ERR_GENERAL`。
+- `chat(json_payload, callback, user_data)` —— **备用接口（当前未用）。** 同步阻塞 + SSE 流式解析。`voice_agent` 当前用同步 API，此接口保留供后续兼容模型切换。
 
 **反初始化：** `curl_global_cleanup()`
 
@@ -530,7 +532,7 @@ code/smart-speaker/
 │   │   └── alsa_capture.c     # USB 声卡录音 + 唤醒能量检测
 │   │
 │   ├── ai/                    # AI 服务层
-│   │   ├── ai_client.c        # libcurl HTTP + SSE 解析 + 重试
+│   │   ├── ai_client.c        # libcurl HTTP + 同步/流式API + 重试
 │   │   ├── ai_conv.c          # 对话历史管理 + JSON 构建
 │   │   ├── ai_tts.c           # 腾讯云 TTS（TC3-HMAC-SHA256 签名）
 │   │   └── wake_word.c        # 唤醒词引擎实现（预留，注释状态）
