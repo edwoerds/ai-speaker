@@ -1,0 +1,18 @@
+# 构建产物
+build/
+output/
+
+# 临时音频文件
+/tmp/speaker/
+
+# IDE
+.vscode/
+.idea/
+
+# 系统文件
+*.swp
+*.swo
+*~
+
+# 日志
+*.log

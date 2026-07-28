@@ -1,0 +1,32 @@
+; AI-Speaker 配置文件
+; 放置到 /etc/speaker.conf 或通过 -c 指定路径
+
+[log]
+level = debug          ; debug | info | warn | error
+
+[bluetooth]
+device_name = AI-Speaker
+discoverable_timeout = 300
+auto_reconnect = true
+
+[ai]
+; API 配置（支持 OpenAI 兼容接口：DeepSeek / OpenAI / 通义千问等）
+api_url = https://api.deepseek.com/chat/completions
+api_key = sk-your-api-key-here
+model = deepseek-chat
+temperature = 0.7
+max_tokens = 2048
+timeout = 30000
+
+; 系统提示词（AI 的角色设定）
+system_prompt = 你是一个智能音箱助手。请用简洁、清晰的中文回答问题，保持回答在100字以内。
+
+[tts]
+; 腾讯云语音合成（代替原来的 edge-tts + mpg123）
+secret_id = your-secret-id-here
+secret_key = your-secret-key-here
+voice_type = 0           ; 0=晓薇(女), 1=晓晓(女), 101001=智逸(男)
+output_dir = /tmp/speaker
+
+[audio]
+device = default          ; ALSA PCM 设备名
