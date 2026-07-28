@@ -300,9 +300,10 @@ typedef struct {
 
 **初始化流程：**
 
-1. 注册 BlueZ A2DP Sink Profile（D-Bus MediaEndpoint1）
-2. 启动 ALSA 播放线程（从环形缓冲读取数据播放到 audio_player）
-3. 自动发现 bluealsa 设备（`bluealsa-aplay -L`）
+1. 初始化 PCM 环形缓冲（容量 16384 帧，约 370ms @ 44100Hz）
+2. 自动发现 bluez-alsa 设备（`bluealsa-aplay -L`）
+3. 启动 ALSA 播放线程：环形缓冲 → `audio_player_stream_write` → ALSA 播放
+4. 启动 PCM reader 线程：`bluealsa://` 捕获 PCM → 写入环形缓冲
 
 **环形缓冲设计：**
 
@@ -394,9 +395,9 @@ typedef struct {
 
 | 方法 | 行为 |
 |------|------|
-| `init(cfg)` | 内部链式初始化：mixer_init → audio_player_init → bt_a2dp_init → alsa_capture_init |
-| `deinit()` | 逆序反初始化 |
-| `play_tts(filepath)` | 异步播放 TTS WAV 文件，自动对 music 流做 ducking，播完恢复 |
+| `init(cfg)` | 链式初始化：mixer_init → 注册混音流（"music"/"tts"）→ audio_player_init → bt_a2dp_init → alsa_capture_init → 订阅 EV_AUDIO_PLAY_DONE / EV_AUDIO_ERROR |
+| `deinit()` | 退订事件 → alsa_capture_deinit → bt_a2dp_deinit → audio_player_deinit → mixer_deinit |
+| `play_tts(filepath)` | 异步播放 TTS WAV 文件。若音乐正在播放：暂停 A2DP 流 → bt_a2dp_set_ducking(true) → mixer_duck_start("music", 0.3)。播完或出错时自动恢复音乐流 |
 | `stop_tts()` | 停止 TTS 播放 |
 | `is_tts_playing()` | 查询 TTS 是否正在播放 |
 | `music_start()` | 通知 pipeline A2DP 音乐开始 |
