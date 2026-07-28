@@ -183,15 +183,26 @@
 
 ### 2.5 ai_tts（服务层，PRIO 10）
 
-**职责：** 调用 Microsoft Edge TTS 服务，将文字合成为 WAV 音频文件。
+**职责：** 调用腾讯云语音合成（TTS）API，将文字合成为 WAV 音频文件。使用 TC3-HMAC-SHA256 签名认证，无需外部进程依赖。
 
 **接口说明：**
 
 | 方法 | 行为 |
 |------|------|
-| `init()` | 检查 `edge-tts` 和 `mpg123` 命令是否可用，创建输出目录 |
-| `speak(text, &out_path)` | ① `edge-tts --text ... --write-media tmp.mp3` → ② `mpg123 -w tmp.wav tmp.mp3` → ③ 失败则删除半成品文件返回 `ERR_GENERAL` → ④ 成功返回 `out_path = strdup(wav_path)`，调用方负责 free |
-| `deinit()` | 清理临时文件 |
+| `init(cfg)` | 保存配置（secret_id / secret_key / voice_type / output_dir），创建输出目录 |
+| `speak(text, &out_path)` | ① 构建 JSON 请求体（含转义）→ ② 计算 TC3-HMAC-SHA256 签名 → ③ libcurl POST 到 `tts.tencentcloudapi.com` → ④ 解析响应提取 `Audio` base64 数据 → ⑤ base64 解码写入 WAV 文件 → `out_path = strdup(wav_path)`，调用方负责 free。失败返回 `ERR_GENERAL` |
+| `deinit()` | 释放资源 |
+
+**配置项（定义在 `ai_client.h` 的 `ai_tts_config_t`）：**
+
+```c
+typedef struct {
+    const char *secret_id;      /* 腾讯云 SecretId */
+    const char *secret_key;     /* 腾讯云 SecretKey */
+    int         voice_type;     /* 音色编号（0=晓薇, 1=晓晓, 101001=智逸） */
+    const char *output_dir;     /* WAV 输出目录 */
+} ai_tts_config_t;
+```
 
 ---
 
