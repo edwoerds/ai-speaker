@@ -371,7 +371,7 @@ code/smart-speaker/
 | voice_agent.c | A2DP 状态转移 + ducking 逻辑 | +30 |
 | 结果 | SPP+A2DP 双 Profile | 3445 |
 
-### Phase 5：音频管道（Day12~13，7/27~28）
+### Phase 5：音频管道
 
 | 模块 | 内容 | 行数 |
 |------|------|:---:|
@@ -380,7 +380,7 @@ code/smart-speaker/
 | audio_pipeline.c | 播放+录音+A2DP 协调 | +150 |
 | 结果 | 音频子系统完整 | 3945 |
 
-### Phase 6：联调+稳定性（Day14~15，7/29~30）
+### Phase 6：联调+稳定性
 
 | 内容 | 行数 |
 |------|:---:|
