@@ -2,6 +2,9 @@
 build/
 output/
 
+# 内部规划文档
+smart-speaker-prd.md
+
 # 临时音频文件
 /tmp/speaker/
 
