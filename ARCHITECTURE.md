@@ -110,18 +110,20 @@
 | `ST_PROCESSING` | 2 | AI 请求处理中 |
 | `ST_SPEAKING` | 3 | TTS 播报中 |
 | `ST_EXITING` | 4 | 收到关闭信号 |
+| `ST_LISTENING` | 5 | **v2.0：唤醒后录音中，语音输入** |
 
 **初始化流程（实际顺序）：**
 
-1. 初始化 AI 客户端（`ai_client_init`）—— api_url 不传则默认 `https://api.deepseek.com/chat/completions`
-2. 初始化 TTS（`ai_tts_init`）—— 从配置读取 secret_id / secret_key / voice_type
-3. 初始化对话管理（`ai_conv_init`）—— 设置 system prompt
-4. 初始化音频管道（`audio_pipeline_init`）—— 内部链式 init：mixer → player → a2dp → capture
-5. 启动录音（`audio_pipeline_capture_start`）—— 用于唤醒能量检测
-6. 初始化状态机（`sm_init`）—— 12 条转移，初始状态 `ST_IDLE`
-7. 订阅 11 个事件：`EV_BT_DATA_RECEIVED`、`EV_WAKEUP_DETECTED`、`EV_AI_RESP_READY`、`EV_AUDIO_PLAY_DONE`、`EV_AUDIO_MUSIC_START`、`EV_AUDIO_MUSIC_STOP`、`EV_SYS_SHUTDOWN`、`EV_AI_ERROR`、`EV_AUDIO_ERROR`、`EV_BT_DEVICE_DISCONN`、`EV_SYS_ERROR`
+1. 初始化 AI 客户端（`ai_client_init`）
+2. 初始化 TTS（`ai_tts_init`）
+3. 初始化对话管理（`ai_conv_init`）
+4. **v2.0：初始化 STT（`ai_stt_init`）—— 百度 API 配了 key 则获取 access_token，否则降级**
+5. 初始化音频管道（`audio_pipeline_init`）—— 内部链式 init：mixer → player → a2dp → capture
+6. 启动录音（`audio_pipeline_capture_start`）—— 用于唤醒能量检测和 STT
+7. 初始化状态机（`sm_init`）—— 14 条转移，初始状态 `ST_IDLE`
+8. 订阅 12 个事件：`EV_AUDIO_CAPTURE_DATA`、`EV_BT_DATA_RECEIVED`、`EV_WAKEUP_DETECTED`、`EV_AI_RESP_READY`、`EV_AUDIO_PLAY_DONE`、`EV_AUDIO_MUSIC_START`、`EV_AUDIO_MUSIC_STOP`、`EV_SYS_SHUTDOWN`、`EV_AI_ERROR`、`EV_AUDIO_ERROR`、`EV_BT_DEVICE_DISCONN`、`EV_SYS_ERROR`
 
-**反初始化：** 按 init 逆序释放：停止录音 → 反初始化音频管道 → 对话管理 → TTS → AI 客户端
+**反初始化：** 按 init 逆序释放：停止录音采集 → STT 反初始化 → 逆序释放各模块
 
 **状态转移表（12 条）：**
 
@@ -231,7 +233,38 @@ typedef struct {
 
 ---
 
-### 2.5 ai_tts（服务层，PRIO 10）
+### 2.5 ai_stt（服务层，PRIO 10）— v2.0 新增
+
+语音识别模块，将 PCM 音频（16kHz/16bit/mono）发送到百度短语音识别 API，返回识别文本。
+
+**文件：** `src/ai/ai_stt.c` | `inc/ai_stt.h`
+
+**接口：**
+
+| 方法 | 说明 |
+|:----|:----|
+| `ai_stt_init(cfg)` | 初始化，获取百度 OAuth2.0 access_token |
+| `ai_stt_process(audio, frames, &text)` | PCM → 文本（调用方 free text） |
+| `ai_stt_deinit()` | 清理 |
+
+**API 调用流程：**
+1. `ai_stt_init` → `do_fetch_token()` → `POST https://aip.baidubce.com/oauth/2.0/token` → 获取 access_token
+2. `ai_stt_process` → `do_stt()` → base64 编码 PCM → `POST http://vop.baidu.com/server_api`（JSON body，格式/采样率/声道/cuid/token/speech/len）
+3. 解析返回 JSON 的 `result[0]` 字段
+
+**错误处理：**
+- 未配置 api_key → 降级模式，`ai_stt_process` 返回 ERR_NOT_FOUND
+- token 获取失败 → 返回 ERR_NOT_FOUND，caller 降级为"你好"问候
+- API 错误码（如 3300/3311）→ 记录日志，返回 ERR_GENERAL
+- token 过期（err_no=110）→ 清空 token，下次请求降级
+
+**依赖：** libcurl（HTTP）、自实现 base64 编码器
+
+**线程安全：** 无内部锁，由 voice_agent 确保串行调用（thread_pool 单次执行）
+
+---
+
+### 2.6 ai_tts（服务层，PRIO 10）
 
 **职责：** 调用腾讯云语音合成（TTS）API，将文字合成为 WAV 音频文件。使用 TC3-HMAC-SHA256 签名认证，纯 libcurl + OpenSSL 实现，无外部进程依赖。
 
@@ -423,9 +456,12 @@ typedef struct {
 
 **架构集成方式：**
 
-- `alsa_capture` 的 capture_thread 每帧调用 `wake_word_process()`
-- 检测到唤醒词发布 `EV_WAKEUP_DETECTED` 事件
-- `voice_agent` 订阅该事件，状态机从 `ST_IDLE` → `ST_PROCESSING`（动作 `do_wake_response`）
+- `alsa_capture` 的 capture_thread 每帧做能量检测，超过阈值发布 `EV_WAKEUP_DETECTED`
+- `voice_agent` 订阅该事件，状态机从 `ST_IDLE` → `ST_LISTENING`（v2.0 新增）
+- `ST_LISTENING` 期间累积 PCM 音频 2.5 秒 → 提交 STT 任务到线程池
+- STT 成功 → `EV_AI_RESP_READY` → `ST_SPEAKING`（TTS 播报）
+- STT 失败 → 降级发"你好"问候
+- 同时保留 Porcupine 离线唤醒词接口（注释状态），获取 AccessKey 后启用
 - TTS 播报期间通过 `alsa_capture_set_wake_muted(true)` 防止自触发
 
 ---

@@ -9,6 +9,7 @@
   #define ST_PROCESSING 2//在等 AI API 返回结果
   #define ST_SPEAKING   3//TTS 语音正在播放
   #define ST_EXITING    4//收到 Ctrl+C，准备退出
+  #define ST_LISTENING  5//唤醒后录音中，等语音输入（v2.0 STT）
 
   /*
  * 语音助手 — 应用层主控状态机，项目唯一编排器

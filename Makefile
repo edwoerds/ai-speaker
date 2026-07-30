@@ -38,6 +38,7 @@
       $(SRC_DIR)/ai/ai_client.c \
       $(SRC_DIR)/ai/ai_conv.c \
       $(SRC_DIR)/ai/ai_tts.c \
+      $(SRC_DIR)/ai/ai_stt.c \
       $(SRC_DIR)/audio/audio_player.c\
       $(SRC_DIR)/audio/alsa_capture.c \
       $(SRC_DIR)/audio/audio_mixer.c \

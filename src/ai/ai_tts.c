@@ -312,10 +312,27 @@ err_t ai_tts_speak(const char *text, char **out_path)
     if (!s_tts.inited || !text || !out_path) return ERR_INVAL;
     if (text[0] == '\0') return ERR_INVAL;
 
+    /* 截断过长的文本（Tencent TTS 限制约 1024 字节）
+     * 用 900 字节安全余量，同时保证不切碎 UTF-8 字符     */
+    #define TTS_MAX_BYTES 900
+    char trunc_buf[TTS_MAX_BYTES + 1];
+    const char *send_text = text;
+
+    if (strlen(text) >= TTS_MAX_BYTES) {
+        size_t n = TTS_MAX_BYTES;
+        /* 回退到完整 UTF-8 字符边界 */
+        while (n > 0 && ((unsigned char)text[n] & 0xC0) == 0x80) n--;
+        memcpy(trunc_buf, text, n);
+        trunc_buf[n] = '\0';
+        send_text = trunc_buf;
+        LOG_WARN("TTS: text truncated from %zu to %zu bytes",
+                 strlen(text), n);
+    }
+
     /* 构建请求体 JSON */
     int seq = __sync_fetch_and_add(&s_seq, 1);
 
-    char *escaped_text = json_escape(text);
+    char *escaped_text = json_escape(send_text);
     if (!escaped_text) return ERR_NOMEM;
 
     char session_id[64];

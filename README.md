@@ -8,7 +8,7 @@
 通过手机蓝牙 SPP 发送文字，调用 AI API 生成回复并语音播报。
 支持 A2DP 蓝牙音乐播放、离线唤醒触发、TTS ducking 等完整音频功能。
 
-**项目规模：** ~5700 行 C 代码，27 个单元测试，Valgrind 零泄漏。
+**项目规模：** ~6000 行 C 代码，25 个单元测试，Valgrind 零泄漏。
 
 ---
 
@@ -61,6 +61,8 @@ vi /etc/speaker.conf
 | `[tts]` | `secret_id` | 腾讯云 SecretId |
 | `[tts]` | `secret_key` | 腾讯云 SecretKey |
 | `[tts]` | `voice_type` | 音色编号（0=晓薇） |
+| `[stt]` | `api_key` | 百度语音识别 API Key（v2.0） |
+| `[stt]` | `secret_key` | 百度语音识别 Secret Key（v2.0） |
 | `[bluetooth]` | `device_name` | 蓝牙广播名称 |
 | `[audio]` | `device` | ALSA PCM 设备名 |
 | `[wake_word]` | — | 预留 Porcupine 配置段 |
@@ -77,15 +79,25 @@ vi /etc/speaker.conf
 3. 音箱 AI 回复并语音播报
 4. 手机可播放 A2DP 蓝牙音乐，TTS 播报时自动 ducking
 
-## 唤醒功能
+## 语音唤醒
 
-音箱支持离线唤醒触发：
+音箱支持两种唤醒方式：
 
-- **当前方案：** 能量检测（音量超过阈值触发）
-- **预留方案：** Porcupine 离线唤醒词引擎（接口已封装，需 Picovoice AccessKey）
+**① 语音触发（v2.0 STT）**
+拍手/敲桌子 → 能量检测触发 → 录音 2.5 秒 → 百度语音识别（STT） → AI 对话 → TTS 播报
+配置百度 API Key 后在 `speaker.conf` 的 `[stt]` 段填写。
 
-唤醒触发后自动向 AI 发送"你好"并播报回复。
-详见 `inc/wake_word.h` 和 `src/ai/wake_word.c`。
+**② 蓝牙文字输入**
+手机蓝牙串口 App 发送文字 → AI 对话 → TTS 播报
+
+**③ 离线唤醒词（预留）**
+Porcupine 引擎接口已封装在 `wake_word.c`，需 Picovoice AccessKey。
+试用 Key 已验证全链路可用。详见 `inc/wake_word.h`。
+
+## 断线重连（v2.0）
+
+蓝牙 SPP 断开后自动重连，策略：2s → 4s → 8s → 16s → 30s（指数退避）。
+在 `speaker.conf` 的 `[bluetooth]` 段配置 `auto_reconnect = true`。
 
 ## 项目结构
 
@@ -108,6 +120,7 @@ vi /etc/speaker.conf
 │   ├── audio_mixer.h     # 软件混音
 │   ├── audio_pipeline.h  # 音频管道
 │   ├── ai_client.h       # AI 客户端 + TTS 配置
+│   ├── ai_stt.h          # v2.0：语音识别
 │   ├── voice_agent.h     # 主控状态机
 │   └── wake_word.h       # 唤醒词引擎接口
 ├── src/                   # 源码
